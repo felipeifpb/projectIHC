@@ -44,7 +44,7 @@
 </head>
 <body>
 
-    <!-- HEADER (Navegação Global) -->
+    <!-- HEADER -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="#">TravelMap</a>
@@ -56,9 +56,6 @@
                     <li class="nav-item"><a class="nav-link" href="#">Início</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">Meus Destinos</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">Explorar</a></li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#helpModal">Ajuda</a>
-                    </li>
                 </ul>
             </div>
         </div>
@@ -79,30 +76,12 @@
             <input type="file" id="photo" class="form-control mb-2">
             <textarea id="experience" class="form-control mb-2" placeholder="Compartilhe sua experiência"></textarea>
             <button onclick="addDestination()" class="btn btn-primary">Adicionar ao meu Mapa</button>
+            <p id="error-message" class="text-danger mt-2"></p>
         </div>
 
         <!-- LISTA DE DESTINOS -->
         <h4 class="mt-4">Meus Destinos:</h4>
         <div id="destinationList"></div>
-    </div>
-
-    <!-- MODAL DE AJUDA -->
-    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="helpModalLabel">Ajuda</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Adicione cidades e países que já visitou.</p>
-                    <p>Compartilhe suas experiências e veja sugestões de destinos!</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- FOOTER -->
@@ -119,53 +98,80 @@
         }).addTo(map);
 
         function addDestination() {
-            const city = document.getElementById('city').value;
-            const country = document.getElementById('country').value;
-            const experience = document.getElementById('experience').value;
+            const city = document.getElementById('city').value.trim();
+            const country = document.getElementById('country').value.trim();
+            const experience = document.getElementById('experience').value.trim();
             const fileInput = document.getElementById('photo');
-            const reader = new FileReader();
+            const errorMessage = document.getElementById('error-message');
+            errorMessage.textContent = '';
 
             if (!city || !country) {
-                alert('Por favor, preencha todos os campos!');
+                errorMessage.textContent = 'Por favor, preencha a cidade e o país corretamente!';
                 return;
             }
 
-            reader.onload = function (e) {
-                const imgSrc = e.target.result || 'https://via.placeholder.com/80';
-
-                const destinationCard = document.createElement('div');
-                destinationCard.classList.add('destination-card');
-                destinationCard.innerHTML = `
-                    <img src="${imgSrc}" alt="${city}">
-                    <div>
-                        <strong>${city}, ${country}</strong><br>
-                        <small>${experience}</small>
-                    </div>
-                `;
-                document.getElementById('destinationList').appendChild(destinationCard);
-            };
-
-            if (fileInput.files[0]) {
-                reader.readAsDataURL(fileInput.files[0]);
-            } else {
-                reader.onload();
+            if (!fileInput.files.length) {
+                errorMessage.textContent = 'Você deve selecionar uma imagem antes de enviar o destino.';
+                return;
             }
 
-            // Adiciona um marcador no mapa
+            // Busca a localização para validar a cidade e o país
             fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${city},${country}`)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.length > 0) {
-                        L.marker([data[0].lat, data[0].lon]).addTo(map)
-                            .bindPopup(`<strong>${city}, ${country}</strong>`);
+                    if (data.length === 0) {
+                        errorMessage.textContent = 'Localização não encontrada. Verifique os dados informados.';
+                        return;
                     }
-                });
 
-            // Limpa os campos
-            document.getElementById('city').value = '';
-            document.getElementById('country').value = '';
-            document.getElementById('experience').value = '';
-            fileInput.value = '';
+                    const locationData = data[0]; // Pegamos o primeiro resultado
+                    const lat = locationData.lat;
+                    const lon = locationData.lon;
+                    const foundCountry = locationData.display_name.split(', ').pop(); // Obtém o nome do país retornado pela API
+
+                    // Valida se o país informado pelo usuário corresponde ao encontrado na API
+                    if (foundCountry.toLowerCase() !== country.toLowerCase()) {
+                        errorMessage.textContent = `Erro: A cidade ${city} não pertence ao país ${country}.`;
+                        return;
+                    }
+
+                    // Lê a imagem e adiciona ao destino
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        const imgSrc = e.target.result;
+
+                        const destinationCard = document.createElement('div');
+                        destinationCard.classList.add('destination-card');
+                        destinationCard.innerHTML = `
+                            <img src="${imgSrc}" alt="${city}">
+                            <div>
+                                <strong>${city}, ${country}</strong><br>
+                                <small>${experience}</small>
+                            </div>
+                        `;
+                        document.getElementById('destinationList').appendChild(destinationCard);
+
+                        // Adiciona marcador ao mapa
+                        L.marker([lat, lon]).addTo(map)
+                            .bindPopup(`<strong>${city}, ${country}</strong>`)
+                            .openPopup();
+                        
+                        // Centraliza o mapa no local adicionado
+                        map.setView([lat, lon], 5);
+                    };
+
+                    reader.readAsDataURL(fileInput.files[0]);
+
+                    // Limpa os campos
+                    document.getElementById('city').value = '';
+                    document.getElementById('country').value = '';
+                    document.getElementById('experience').value = '';
+                    fileInput.value = '';
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar a localização:', error);
+                    errorMessage.textContent = 'Erro ao buscar a localização. Tente novamente mais tarde.';
+                });
         }
     </script>
 
